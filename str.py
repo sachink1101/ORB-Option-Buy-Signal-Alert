@@ -4,8 +4,8 @@ import time
 import webbrowser
 import threading
 import logging
-from fyers_api import fyersModel  # Updated import
-from fyers_api import accessToken  # Updated import
+from fyers_api import fyersModel
+from fyers_api import accessToken
 from flask import Flask, request
 from telegram import Bot
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -198,7 +198,7 @@ def monitor_breakout():
 # === DAILY SCHEDULE ===
 def schedule_daily_strategy():
     logger.info("Starting authentication...")
-    start_auth_flow()
+    start_auth_flowCUL()  # ✅ Fixed name
 
     def wait_for_auth_and_run():
         global fyers
