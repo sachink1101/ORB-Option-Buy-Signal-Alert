@@ -4,6 +4,8 @@ import time
 import webbrowser
 import threading
 import logging
+import csv
+import os
 from fyers_api import fyersModel
 from fyers_api import accessToken
 from flask import Flask, request
@@ -35,6 +37,17 @@ app = Flask(__name__)
 session = None
 fyers = None
 bot = Bot(token=TELEGRAM_TOKEN)
+
+# === CSV LOGGING ===
+LOG_FILE = "breakout_signals.csv"
+
+def log_trade(date, option_symbol, entry_price, sl, target, result):
+    file_exists = os.path.isfile(LOG_FILE)
+    with open(LOG_FILE, mode="a", newline="") as file:
+        writer = csv.writer(file)
+        if not file_exists:
+            writer.writerow(["Date", "Option", "Entry", "SL", "Target", "Result"])
+        writer.writerow([date, option_symbol, entry_price, sl, target, result])
 
 # === AUTH ===
 @app.route('/')
@@ -108,7 +121,7 @@ def send_alert(message):
 
 def format_expiry_code():
     today = dt.datetime.now()
-    expiry = today + dt.timedelta((3 - today.weekday()) % 7)  # Next Wednesday
+    expiry = today + dt.timedelta((3 - today.weekday()) % 7)
     return expiry.strftime("%d") + expiry.strftime("%b").upper() + expiry.strftime("%y")
 
 def get_opening_range():
@@ -137,6 +150,8 @@ def get_opening_range():
 def track_sl_target(option_symbol, entry_price):
     sl = entry_price - stop_loss_points
     target = entry_price + target_points
+    date = dt.datetime.now().strftime("%Y-%m-%d")
+
     logger.info(f"Tracking SL/Target | Entry: ₹{entry_price:.2f} | SL: ₹{sl:.2f} | Target: ₹{target:.2f}")
     while True:
         ltp = get_option_price(option_symbol)
@@ -145,10 +160,12 @@ def track_sl_target(option_symbol, entry_price):
             continue
 
         if ltp <= sl:
-            send_alert(f"🛑 SL Hit for {option_symbol} | LTP: ₹{ltp:.2f}")
+            send_alert(f"🚩 SL Hit for {option_symbol} | LTP: ₹{ltp:.2f}")
+            log_trade(date, option_symbol, entry_price, sl, target, "SL")
             break
         elif ltp >= target:
             send_alert(f"✅ Target Hit for {option_symbol} | LTP: ₹{ltp:.2f}")
+            log_trade(date, option_symbol, entry_price, sl, target, "Target")
             break
 
         logger.info(f"{dt.datetime.now().strftime('%H:%M:%S')} → Tracking {option_symbol} | ₹{ltp:.2f}")
@@ -198,7 +215,7 @@ def monitor_breakout():
 # === DAILY SCHEDULE ===
 def schedule_daily_strategy():
     logger.info("Starting authentication...")
-    start_auth_flowCUL()  # ✅ Fixed name
+    start_auth_flowCUL()
 
     def wait_for_auth_and_run():
         global fyers
