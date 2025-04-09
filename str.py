@@ -5,7 +5,7 @@ import webbrowser
 import threading
 import logging
 import csv
-import os
+import pytz
 from fyers_api import fyersModel
 from fyers_api import accessToken
 from flask import Flask, request
@@ -37,17 +37,6 @@ app = Flask(__name__)
 session = None
 fyers = None
 bot = Bot(token=TELEGRAM_TOKEN)
-
-# === CSV LOGGING ===
-LOG_FILE = "breakout_signals.csv"
-
-def log_trade(date, option_symbol, entry_price, sl, target, result):
-    file_exists = os.path.isfile(LOG_FILE)
-    with open(LOG_FILE, mode="a", newline="") as file:
-        writer = csv.writer(file)
-        if not file_exists:
-            writer.writerow(["Date", "Option", "Entry", "SL", "Target", "Result"])
-        writer.writerow([date, option_symbol, entry_price, sl, target, result])
 
 # === AUTH ===
 @app.route('/')
@@ -121,7 +110,7 @@ def send_alert(message):
 
 def format_expiry_code():
     today = dt.datetime.now()
-    expiry = today + dt.timedelta((3 - today.weekday()) % 7)
+    expiry = today + dt.timedelta((3 - today.weekday()) % 7)  # Next Wednesday
     return expiry.strftime("%d") + expiry.strftime("%b").upper() + expiry.strftime("%y")
 
 def get_opening_range():
@@ -147,11 +136,17 @@ def get_opening_range():
         logger.error(f"Error getting opening range: {e}")
         return None, None
 
+def log_trade(symbol, entry, sl, target, result):
+    try:
+        with open("trade_log.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), symbol, entry, sl, target, result])
+    except Exception as e:
+        logger.error(f"Error logging trade: {e}")
+
 def track_sl_target(option_symbol, entry_price):
     sl = entry_price - stop_loss_points
     target = entry_price + target_points
-    date = dt.datetime.now().strftime("%Y-%m-%d")
-
     logger.info(f"Tracking SL/Target | Entry: ₹{entry_price:.2f} | SL: ₹{sl:.2f} | Target: ₹{target:.2f}")
     while True:
         ltp = get_option_price(option_symbol)
@@ -160,12 +155,14 @@ def track_sl_target(option_symbol, entry_price):
             continue
 
         if ltp <= sl:
-            send_alert(f"🚩 SL Hit for {option_symbol} | LTP: ₹{ltp:.2f}")
-            log_trade(date, option_symbol, entry_price, sl, target, "SL")
+            msg = f"🛑 SL Hit for {option_symbol} | LTP: ₹{ltp:.2f}"
+            send_alert(msg)
+            log_trade(option_symbol, entry_price, sl, target, "SL")
             break
         elif ltp >= target:
-            send_alert(f"✅ Target Hit for {option_symbol} | LTP: ₹{ltp:.2f}")
-            log_trade(date, option_symbol, entry_price, sl, target, "Target")
+            msg = f"✅ Target Hit for {option_symbol} | LTP: ₹{ltp:.2f}"
+            send_alert(msg)
+            log_trade(option_symbol, entry_price, sl, target, "Target")
             break
 
         logger.info(f"{dt.datetime.now().strftime('%H:%M:%S')} → Tracking {option_symbol} | ₹{ltp:.2f}")
@@ -185,6 +182,7 @@ def monitor_breakout():
             logger.error("Failed to get strike price, retrying...")
             time.sleep(30)
             continue
+
         expiry_code = format_expiry_code()
         ce_symbol = f"NSE:NIFTY{expiry_code}{strike}CE"
         pe_symbol = f"NSE:NIFTY{expiry_code}{strike}PE"
@@ -228,7 +226,8 @@ def schedule_daily_strategy():
 
 # === MAIN ===
 if __name__ == "__main__":
-    scheduler = BackgroundScheduler()
+    ist = pytz.timezone('Asia/Kolkata')
+    scheduler = BackgroundScheduler(timezone=ist)
     scheduler.add_job(schedule_daily_strategy, 'cron', hour=9, minute=0)
     scheduler.start()
 
